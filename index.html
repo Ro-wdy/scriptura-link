@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Scriptura</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1a1a1a; --muted: #6b6b6b; --bg: #fafafa; --accent: #4f46e5; --card: #fff; --border: #e5e5e5; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #ececec; --muted: #9a9a9a; --bg: #111; --card: #1b1b1b; --border: #2a2a2a; --accent: #8b85ff; } }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 32rem; padding: 2rem; margin: 1rem; background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
+  h1 { margin: 0 0 .25rem; font-size: 1.4rem; }
+  p { margin: .5rem 0; color: var(--muted); }
+  a { color: var(--accent); word-break: break-all; }
+  button { margin-top: 1rem; padding: .5rem 1rem; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--fg); cursor: pointer; }
+  .spinner { display: inline-block; width: .8em; height: .8em; border: 2px solid var(--muted); border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -.1em; margin-right: .4em; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  small { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Scriptura</h1>
+  <p id="status"><span class="spinner"></span>Checking whether the app is up…</p>
+  <p><small>Current address: <a id="link" href="https://damaged-rebound-aaron-received.trycloudflare.com">https://damaged-rebound-aaron-received.trycloudflare.com</a><br>Updated 2026-09-04 09:15 UTC</small></p>
+  <button id="retry" hidden onclick="location.reload()">Try again</button>
+</main>
+<script>
+  // The app runs on a home machine behind a temporary Cloudflare tunnel whose
+  // address changes now and then; this page is the permanent one. It asks the
+  // app's /health first so a dead address shows a message instead of a
+  // Cloudflare error page.
+  var URL_ = "https://damaged-rebound-aaron-received.trycloudflare.com";
+  var status = document.getElementById("status");
+  var ctrl = new AbortController();
+  var timer = setTimeout(function () { ctrl.abort(); }, 6000);
+  fetch(URL_ + "/health", { signal: ctrl.signal, cache: "no-store" })
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function () {
+      clearTimeout(timer);
+      status.textContent = "Taking you to Scriptura…";
+      location.replace(URL_ + location.search + location.hash);
+    })
+    .catch(function () {
+      clearTimeout(timer);
+      status.textContent = "Scriptura is offline right now — the machine it runs on is off or asleep. Try again later.";
+      document.getElementById("retry").hidden = false;
+    });
+</script>
+</body>
+</html>
