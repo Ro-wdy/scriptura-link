@@ -1,1 +1,1 @@
-https://reading-component-station-features.trycloudflare.com
+https://api.trycloudflare.com
