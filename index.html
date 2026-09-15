@@ -24,30 +24,81 @@
 <main>
   <h1>Scriptura</h1>
   <p id="status"><span class="spinner"></span>Checking whether the app is up…</p>
-  <p><small>Current address: <a id="link" href="https://spokesman-mods-bikes-basis.trycloudflare.com">https://spokesman-mods-bikes-basis.trycloudflare.com</a><br>Updated 2026-09-15 14:58 UTC</small></p>
+  <p><small>Current address: <a id="link" href="https://spokesman-mods-bikes-basis.trycloudflare.com">https://spokesman-mods-bikes-basis.trycloudflare.com</a><br>Updated 2026-09-15 15:14 UTC</small></p>
   <button id="retry" hidden onclick="location.reload()">Try again</button>
 </main>
 <script>
-  // The app runs on a home machine behind a temporary Cloudflare tunnel whose
-  // address changes now and then; this page is the permanent one. It asks the
-  // app's /health first so a dead address shows a message instead of a
-  // Cloudflare error page.
-  var URL_ = "https://spokesman-mods-bikes-basis.trycloudflare.com";
-  var status = document.getElementById("status");
-  var ctrl = new AbortController();
-  var timer = setTimeout(function () { ctrl.abort(); }, 6000);
-  fetch(URL_ + "/health", { signal: ctrl.signal, cache: "no-store" })
-    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-    .then(function () {
-      clearTimeout(timer);
-      status.textContent = "Taking you to Scriptura…";
-      location.replace(URL_ + location.search + location.hash);
-    })
-    .catch(function () {
-      clearTimeout(timer);
-      status.textContent = "Scriptura is offline right now — the machine it runs on is off or asleep. Try again later.";
-      document.getElementById("retry").hidden = false;
-    });
+  /* The app runs on a home machine behind a temporary Cloudflare tunnel whose
+     address changes now and then; this page is the permanent one.
+
+     GitHub Pages serves this HTML with Cache-Control: max-age=600, so a
+     returning visitor can be holding a ten-minute-old copy with a since-dead
+     address baked in. To survive that, the live address is read from
+     current.txt (same origin, cache-busted) and the baked-in one is only a
+     fallback. Each candidate must answer /health before we send anyone to it,
+     so a dead address shows a message instead of a Cloudflare error page. */
+  var BAKED = "https://spokesman-mods-bikes-basis.trycloudflare.com";
+  var statusEl = document.getElementById("status");
+  var linkEl = document.getElementById("link");
+  var retryEl = document.getElementById("retry");
+
+  function setLink(url) {
+    linkEl.textContent = url;
+    linkEl.href = url;
+  }
+
+  function withTimeout(promise, ms) {
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, ms);
+    return { signal: ctrl.signal, done: function () { clearTimeout(timer); } };
+  }
+
+  function liveAddress() {
+    var t = withTimeout(null, 5000);
+    return fetch("current.txt?t=" + Date.now(), { cache: "no-store", signal: t.signal })
+      .then(function (r) { t.done(); return r.ok ? r.text() : ""; })
+      .then(function (text) {
+        var url = (text || "").trim();
+        return /^https:\/\/[a-z0-9.-]+$/i.test(url) ? url : "";
+      })
+      .catch(function () { t.done(); return ""; });
+  }
+
+  function alive(url) {
+    var t = withTimeout(null, 7000);
+    return fetch(url + "/health", { cache: "no-store", signal: t.signal })
+      .then(function (r) { t.done(); return r.ok; })
+      .catch(function () { t.done(); return false; });
+  }
+
+  function go(url) {
+    statusEl.textContent = "Taking you to Scriptura\u2026";
+    location.replace(url + location.search + location.hash);
+  }
+
+  function offline() {
+    statusEl.textContent = "Scriptura is offline right now \u2014 the machine it runs on is off or asleep. Try again in a minute.";
+    retryEl.hidden = false;
+  }
+
+  /* Try the freshly-published address first, then the one baked into this
+     copy of the page. They're usually the same; they differ exactly when this
+     page came from a cache. */
+  liveAddress().then(function (live) {
+    var candidates = [];
+    if (live) candidates.push(live);
+    if (candidates.indexOf(BAKED) === -1) candidates.push(BAKED);
+    if (live && live !== BAKED) setLink(live);
+
+    (function attempt(i) {
+      if (i >= candidates.length) return offline();
+      setLink(candidates[i]);
+      alive(candidates[i]).then(function (ok) {
+        if (ok) go(candidates[i]);
+        else attempt(i + 1);
+      });
+    })(0);
+  });
 </script>
 </body>
 </html>
