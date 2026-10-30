@@ -24,81 +24,115 @@
 <main>
   <h1>Scriptura</h1>
   <p id="status"><span class="spinner"></span>Checking whether the app is up…</p>
-  <p><small>Current address: <a id="link" href="https://admissions-cyber-editorial-salon.trycloudflare.com">https://admissions-cyber-editorial-salon.trycloudflare.com</a><br>Updated 2026-10-30 14:23 UTC</small></p>
-  <button id="retry" hidden onclick="location.reload()">Try again</button>
+  <p><small>Current address: <a id="link" href="https://admissions-cyber-editorial-salon.trycloudflare.com">https://admissions-cyber-editorial-salon.trycloudflare.com</a><br>Updated 2026-10-30 15:13 UTC</small></p>
+  <button id="retry" hidden type="button">Try again</button>
 </main>
 <script>
   /* The app runs on a home machine behind a temporary Cloudflare tunnel whose
      address changes now and then; this page is the permanent one.
 
-     GitHub Pages serves this HTML with Cache-Control: max-age=600, so a
-     returning visitor can be holding a ten-minute-old copy with a since-dead
-     address baked in. To survive that, the live address is read from
-     current.txt (same origin, cache-busted) and the baked-in one is only a
-     fallback. Each candidate must answer /health before we send anyone to it,
-     so a dead address shows a message instead of a Cloudflare error page. */
+     Where the address comes from, in order:
+
+       1. raw.githubusercontent.com — authoritative. Updates the moment the
+          watcher pushes, because it serves the file straight from the repo
+          with no build step. GitHub Pages, by contrast, has to rebuild: that
+          normally takes half a minute but has been observed stuck "building"
+          for the better part of an hour, during which the whole Pages site —
+          this HTML *and* its copy of current.txt — serves a dead address.
+          Reading the repo directly takes that pipeline off the critical path.
+       2. current.txt on this site — fallback if raw is unreachable.
+       3. The address baked into this HTML — last resort, and the stalest,
+          since a browser may hold this file for up to max-age=600.
+
+     Each candidate must answer /health before anyone is sent to it. If none
+     do, the tunnel is probably mid-repair (the watcher restarts it and
+     republishes within a minute or two), so this retries on its own rather
+     than making the visitor keep pressing a button. */
+  var RAW = "https://raw.githubusercontent.com/Ro-wdy/scriptura-link/main/current.txt";
   var BAKED = "https://admissions-cyber-editorial-salon.trycloudflare.com";
   var statusEl = document.getElementById("status");
   var linkEl = document.getElementById("link");
   var retryEl = document.getElementById("retry");
+  var round = 0;
+  var MAX_ROUNDS = 20;          // ~3 minutes of patience
+  var RETRY_MS = 9000;
 
-  function setLink(url) {
-    linkEl.textContent = url;
-    linkEl.href = url;
-  }
+  function setLink(url) { linkEl.textContent = url; linkEl.href = url; }
 
-  function withTimeout(promise, ms) {
+  function fetchText(url, ms) {
     var ctrl = new AbortController();
     var timer = setTimeout(function () { ctrl.abort(); }, ms);
-    return { signal: ctrl.signal, done: function () { clearTimeout(timer); } };
+    return fetch(url, { cache: "no-store", signal: ctrl.signal })
+      .then(function (r) { clearTimeout(timer); return r.ok ? r.text() : ""; })
+      .catch(function () { clearTimeout(timer); return ""; });
   }
 
-  function liveAddress() {
-    var t = withTimeout(null, 5000);
-    return fetch("current.txt?t=" + Date.now(), { cache: "no-store", signal: t.signal })
-      .then(function (r) { t.done(); return r.ok ? r.text() : ""; })
-      .then(function (text) {
-        var url = (text || "").trim();
-        return /^https:\/\/[a-z0-9.-]+$/i.test(url) ? url : "";
-      })
-      .catch(function () { t.done(); return ""; });
+  function clean(text) {
+    var url = (text || "").trim();
+    return /^https:\/\/[a-z0-9.-]+$/i.test(url) ? url : "";
+  }
+
+  function candidates() {
+    var bust = "?t=" + Date.now();
+    return fetchText(RAW + bust, 6000).then(function (raw) {
+      return fetchText("current.txt" + bust, 5000).then(function (pages) {
+        var list = [];
+        [clean(raw), clean(pages), BAKED].forEach(function (u) {
+          if (u && list.indexOf(u) === -1) list.push(u);
+        });
+        return list;
+      });
+    });
   }
 
   function alive(url) {
-    var t = withTimeout(null, 7000);
-    return fetch(url + "/health", { cache: "no-store", signal: t.signal })
-      .then(function (r) { t.done(); return r.ok; })
-      .catch(function () { t.done(); return false; });
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, 7000);
+    return fetch(url + "/health", { cache: "no-store", signal: ctrl.signal })
+      .then(function (r) { clearTimeout(timer); return r.ok; })
+      .catch(function () { clearTimeout(timer); return false; });
   }
 
-  function go(url) {
-    statusEl.textContent = "Taking you to Scriptura\u2026";
-    location.replace(url + location.search + location.hash);
+  function attempt() {
+    round++;
+    retryEl.hidden = true;
+    statusEl.textContent = round === 1
+      ? "Checking whether the app is up\u2026"
+      : "Still reconnecting\u2026 (attempt " + round + ")";
+
+    candidates().then(function (list) {
+      if (!list.length) return give_up();
+      setLink(list[0]);
+      (function next(i) {
+        if (i >= list.length) return give_up();
+        setLink(list[i]);
+        alive(list[i]).then(function (ok) {
+          if (ok) {
+            statusEl.textContent = "Taking you to Scriptura\u2026";
+            location.replace(list[i] + location.search + location.hash);
+          } else {
+            next(i + 1);
+          }
+        });
+      })(0);
+    });
   }
 
-  function offline() {
-    statusEl.textContent = "Scriptura is offline right now \u2014 the machine it runs on is off or asleep. Try again in a minute.";
-    retryEl.hidden = false;
+  function give_up() {
+    if (round < MAX_ROUNDS) {
+      statusEl.textContent =
+        "Scriptura is reconnecting \u2014 this usually takes a minute. Retrying automatically\u2026";
+      retryEl.hidden = false;
+      setTimeout(attempt, RETRY_MS);
+    } else {
+      statusEl.textContent =
+        "Scriptura is offline \u2014 the machine it runs on is off or asleep. Try again later.";
+      retryEl.hidden = false;
+    }
   }
 
-  /* Try the freshly-published address first, then the one baked into this
-     copy of the page. They're usually the same; they differ exactly when this
-     page came from a cache. */
-  liveAddress().then(function (live) {
-    var candidates = [];
-    if (live) candidates.push(live);
-    if (candidates.indexOf(BAKED) === -1) candidates.push(BAKED);
-    if (live && live !== BAKED) setLink(live);
-
-    (function attempt(i) {
-      if (i >= candidates.length) return offline();
-      setLink(candidates[i]);
-      alive(candidates[i]).then(function (ok) {
-        if (ok) go(candidates[i]);
-        else attempt(i + 1);
-      });
-    })(0);
-  });
+  retryEl.addEventListener("click", function (e) { e.preventDefault(); round = 0; attempt(); });
+  attempt();
 </script>
 </body>
 </html>
